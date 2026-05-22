@@ -4,7 +4,7 @@ import { Upload, FileText, CheckCircle2, AlertTriangle, X, RefreshCw, Layers } f
 import { useAppStore } from '../store/useAppStore';
 import { api } from '../services/api';
 
-const BATCH_SIZE = 10;
+const BATCH_SIZE = 50;
 const BATCH_DELAY_MS = 1000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -137,11 +137,10 @@ export const Dropzone: React.FC = () => {
       {/* Drag and drop panel */}
       <div
         {...getRootProps()}
-        className={`w-full py-10 px-6 rounded-2xl border-2 border-dashed glass-panel cursor-pointer flex flex-col items-center justify-center gap-4 transition-all duration-300 ${
-          isDragActive
+        className={`w-full py-10 px-6 rounded-2xl border-2 border-dashed glass-panel cursor-pointer flex flex-col items-center justify-center gap-4 transition-all duration-300 ${isDragActive
             ? 'border-primary-500 bg-primary-500/5 shadow-inner scale-[1.01]'
             : 'border-borderDark hover:border-slate-500 hover:bg-slate-800/10'
-        } ${isUploading ? 'opacity-70 cursor-not-allowed' : ''}`}
+          } ${isUploading ? 'opacity-70 cursor-not-allowed' : ''}`}
       >
         <input {...getInputProps()} />
         <div className="p-4 bg-borderDark/30 rounded-full border border-borderDark/40 flex items-center justify-center">
@@ -228,9 +227,8 @@ export const Dropzone: React.FC = () => {
                 {(file.status === 'uploading' || file.status === 'processing') && (
                   <div className="absolute bottom-0 left-0 right-0 h-1 bg-borderDark/50">
                     <div
-                      className={`h-full bg-gradient-to-r ${
-                        file.status === 'processing' ? 'from-amber-500 to-primary-500 animate-pulse' : 'from-primary-500 to-emerald-500'
-                      }`}
+                      className={`h-full bg-gradient-to-r ${file.status === 'processing' ? 'from-amber-500 to-primary-500 animate-pulse' : 'from-primary-500 to-emerald-500'
+                        }`}
                       style={{ width: `${file.progress}%` }}
                     />
                   </div>

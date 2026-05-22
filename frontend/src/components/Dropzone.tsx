@@ -5,6 +5,9 @@ import { useAppStore } from '../store/useAppStore';
 import { api } from '../services/api';
 
 const BATCH_SIZE = 10;
+const BATCH_DELAY_MS = 1000;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const Dropzone: React.FC = () => {
   const { addFiles, updateFileProgress, updateFileStatus, removeFile, addReceipts, clearFiles, files } = useAppStore();
@@ -74,6 +77,11 @@ export const Dropzone: React.FC = () => {
                 errorMessage: (batchError as Error).message || 'Falha na conexão com o servidor',
               });
             });
+          }
+
+          // Aguarda entre lotes para não sobrecarregar o servidor
+          if (i + BATCH_SIZE < acceptedFiles.length) {
+            await sleep(BATCH_DELAY_MS);
           }
         }
       } finally {

@@ -4,75 +4,84 @@ import { Upload, FileText, CheckCircle2, AlertTriangle, X, RefreshCw, Layers } f
 import { useAppStore } from '../store/useAppStore';
 import { api } from '../services/api';
 
+const BATCH_SIZE = 10;
+
 export const Dropzone: React.FC = () => {
-  const { files, addFiles, updateFileProgress, updateFileStatus, removeFile, addReceipts, clearFiles } = useAppStore();
+  const { addFiles, updateFileProgress, updateFileStatus, removeFile, addReceipts, clearFiles, files } = useAppStore();
   const [isUploading, setIsUploading] = useState(false);
+  const [batchInfo, setBatchInfo] = useState<{ current: number; total: number } | null>(null);
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
       if (acceptedFiles.length === 0) return;
 
-      // 1. Register files in store
+      // 1. Register ALL files in the store so the user can see the full queue
+      const countBefore = useAppStore.getState().files.length;
       addFiles(acceptedFiles);
+      const allStoreFiles = useAppStore.getState().files;
+      // New files were appended at the end, in the same order as acceptedFiles
+      const newFileStates = allStoreFiles.slice(countBefore);
+      const fileToId = new Map<File, string>(
+        acceptedFiles.map((file, i) => [file, newFileStates[i].id])
+      );
 
-      // 2. Start bulk upload process
+      // 2. Process in batches of BATCH_SIZE
       setIsUploading(true);
+      const totalBatches = Math.ceil(acceptedFiles.length / BATCH_SIZE);
 
-      // We will upload them in batches or all together.
-      // The API supports multiple files at once under the 'files' field.
-      // To give a highly interactive UX, we will upload the whole batch
-      // and show global progress, updating file statuses appropriately.
       try {
-        // Since Zustand store updates are immediate, let's run upload
-        const responseReceipts = await api.uploadReceipts(
-          acceptedFiles,
-          (percent) => {
-            // Track global upload progress and distribute it visually
-            acceptedFiles.forEach((_, idx) => {
-              // Distribute progress across files
-              const fileId = useAppStore.getState().files.find(f => f.name === acceptedFiles[idx].name && f.status === 'idle')?.id;
-              if (fileId) {
-                updateFileProgress(fileId, percent);
+        for (let i = 0; i < acceptedFiles.length; i += BATCH_SIZE) {
+          const batch = acceptedFiles.slice(i, i + BATCH_SIZE);
+          const currentBatch = Math.floor(i / BATCH_SIZE) + 1;
+          setBatchInfo({ current: currentBatch, total: totalBatches });
+
+          // Mark batch files as uploading
+          batch.forEach((file) => {
+            const id = fileToId.get(file)!;
+            updateFileStatus(id, 'uploading');
+            updateFileProgress(id, 0);
+          });
+
+          try {
+            const responseReceipts = await api.uploadReceipts(batch, (percent) => {
+              batch.forEach((file) => {
+                const id = fileToId.get(file)!;
+                updateFileProgress(id, percent);
                 if (percent === 100) {
-                  updateFileStatus(fileId, 'processing');
-                } else {
-                  updateFileStatus(fileId, 'uploading');
+                  updateFileStatus(id, 'processing');
                 }
+              });
+            });
+
+            // Update statuses for this batch based on response
+            batch.forEach((file) => {
+              const id = fileToId.get(file)!;
+              const result = responseReceipts.find((r) => r.filename === file.name);
+              if (result && result.status_processamento !== 'erro') {
+                updateFileStatus(id, 'success');
+              } else {
+                const errMsg = result?.mensagem_erro || 'Erro ao extrair dados';
+                updateFileStatus(id, 'error', { errorMessage: errMsg });
               }
             });
-          }
-        );
 
-        // 3. Mark everything as success or error in the store based on response
-        acceptedFiles.forEach((file) => {
-          const fileInStore = useAppStore.getState().files.find(f => f.name === file.name);
-          if (fileInStore) {
-            const correspondingResult = responseReceipts.find(r => r.filename === file.name);
-            if (correspondingResult && correspondingResult.status_processamento !== 'erro') {
-              updateFileStatus(fileInStore.id, 'success');
-            } else {
-              const errMsg = correspondingResult?.mensagem_erro || 'Erro ao extrair dados';
-              updateFileStatus(fileInStore.id, 'error', { errorMessage: errMsg });
-            }
+            addReceipts(responseReceipts);
+          } catch (batchError) {
+            console.error(`Erro no lote ${currentBatch}/${totalBatches}:`, batchError);
+            batch.forEach((file) => {
+              const id = fileToId.get(file)!;
+              updateFileStatus(id, 'error', {
+                errorMessage: (batchError as Error).message || 'Falha na conexão com o servidor',
+              });
+            });
           }
-        });
-
-        // 4. Feed successfully extracted receipts into Results Table
-        addReceipts(responseReceipts);
-
-      } catch (error) {
-        console.error('Erro geral durante o upload:', error);
-        // Mark all active files as error
-        useAppStore.getState().files.forEach((f) => {
-          if (f.status === 'uploading' || f.status === 'processing' || f.status === 'idle') {
-            updateFileStatus(f.id, 'error', { errorMessage: (error as Error).message || 'Falha na conexão com o servidor' });
-          }
-        });
+        }
       } finally {
         setIsUploading(false);
+        setBatchInfo(null);
       }
     },
-    [addFiles, files, updateFileProgress, updateFileStatus, addReceipts]
+    [addFiles, updateFileProgress, updateFileStatus, addReceipts]
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -153,6 +162,11 @@ export const Dropzone: React.FC = () => {
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-slate-300 flex items-center gap-1.5">
               Fila de Upload ({files.length})
+              {batchInfo && (
+                <span className="text-[10px] font-medium text-primary-400 bg-primary-500/10 px-2 py-0.5 rounded-full">
+                  Lote {batchInfo.current}/{batchInfo.total}
+                </span>
+              )}
             </h3>
             <button
               onClick={clearFiles}
